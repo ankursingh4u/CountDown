@@ -2,7 +2,7 @@
   "name": "countdown-timer-bar",
   "private": true,
   "scripts": {
-    "build": "remix vite:build",
+    "build": "prisma generate && prisma migrate deploy && remix vite:build",
     "dev": "shopify app dev",
     "config:link": "shopify app config link",
     "config:push": "shopify app config push",
