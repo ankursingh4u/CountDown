@@ -3,6 +3,11 @@
   "installCommand": "npm install",
   "framework": "remix",
   "regions": ["iad1"],
+  "functions": {
+    "api/**/*.js": {
+      "runtime": "nodejs20.x"
+    }
+  },
   "env": {
     "NODE_ENV": "production"
   }
