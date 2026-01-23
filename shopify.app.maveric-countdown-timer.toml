@@ -2,7 +2,7 @@
 
 client_id = "913a8ca6f5cb34598fa3794dda5d2eb2"
 name = "Maveric CountDown timer"
-application_url = "https://countdown-theta-ashen.vercel.app"
+application_url = "https://countdown-timer-bar.vercel.app"
 embedded = true
 
 [build]
@@ -12,18 +12,18 @@ automatically_update_urls_on_dev = true
 api_version = "2024-10"
 
   [webhooks.privacy_compliance]
-  customer_deletion_url = "https://countdown-theta-ashen.vercel.app/webhooks"
-  customer_data_request_url = "https://countdown-theta-ashen.vercel.app/webhooks"
-  shop_deletion_url = "https://countdown-theta-ashen.vercel.app/webhooks"
+  customer_deletion_url = "https://countdown-timer-bar.vercel.app/webhooks"
+  customer_data_request_url = "https://countdown-timer-bar.vercel.app/webhooks"
+  shop_deletion_url = "https://countdown-timer-bar.vercel.app/webhooks"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 scopes = "read_themes,write_themes"
 
 [auth]
-redirect_urls = [ "https://countdown-theta-ashen.vercel.app/auth/callback" ]
+redirect_urls = [ "https://countdown-timer-bar.vercel.app/auth/callback" ]
 
 [app_proxy]
-url = "https://countdown-theta-ashen.vercel.app/apps/timer"
+url = "https://countdown-timer-bar.vercel.app/apps/timer"
 subpath = "timer"
 prefix = "apps"
