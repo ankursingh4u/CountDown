@@ -13,6 +13,11 @@ include_config_on_deploy = true
 [webhooks]
 api_version = "2024-10"
 
+  [webhooks.privacy_compliance]
+  customer_deletion_url = "https://countdown-theta-ashen.vercel.app/webhooks"
+  customer_data_request_url = "https://countdown-theta-ashen.vercel.app/webhooks"
+  shop_deletion_url = "https://countdown-theta-ashen.vercel.app/webhooks"
+
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 scopes = "read_themes,write_themes"
