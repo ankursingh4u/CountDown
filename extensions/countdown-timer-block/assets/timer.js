@@ -2,6 +2,23 @@
   'use strict';
 
   // ============================================================================
+  // DEBUG MODE
+  // ============================================================================
+  // Set to true to enable verbose logging, or add ?countdown_debug=1 to URL
+  const DEBUG_MODE = new URLSearchParams(window.location.search).get('countdown_debug') === '1' ||
+                     window.localStorage.getItem('countdown_debug') === 'true';
+
+  if (DEBUG_MODE) {
+    console.log('Countdown Timer: Debug mode enabled');
+  }
+
+  function debugLog(...args) {
+    if (DEBUG_MODE) {
+      console.log('[Countdown Debug]', ...args);
+    }
+  }
+
+  // ============================================================================
   // STORAGE KEYS
   // ============================================================================
   const STORAGE_KEYS = {
@@ -872,14 +889,164 @@
   // ANALYTICS
   // ============================================================================
 
-  function trackImpression(timerId) {
-    const data = safeGetStorage(STORAGE_KEYS.IMPRESSIONS, {});
-    const sessionKey = `${timerId}_${new Date().toDateString()}`;
+  // Analytics queue for retry mechanism
+  const analyticsQueue = [];
+  let isProcessingQueue = false;
 
-    if (!data[sessionKey]) {
-      data[sessionKey] = true;
-      safeSetStorage(STORAGE_KEYS.IMPRESSIONS, data);
+  /**
+   * Send analytics event to backend API with retry logic
+   */
+  function sendAnalyticsEvent(event, timerId, retryCount = 0) {
+    if (!timerId) {
+      console.warn('Analytics: No timerId provided for event:', event);
+      return;
     }
+
+    // For impressions, use sessionStorage to track once per page load/reload
+    // This ensures impressions are counted on every page view/reload
+    if (event === 'impression') {
+      const sessionKey = `impression_${timerId}_${window.location.pathname}`;
+      const alreadyTracked = safeGetSession(sessionKey, false);
+
+      if (alreadyTracked) {
+        console.debug('Analytics: Impression already tracked for this page view:', timerId);
+        return; // Already tracked for this page view
+      }
+
+      // Mark as tracked for this page view
+      safeSetSession(sessionKey, true);
+    }
+
+    // Prepare analytics payload
+    const payload = {
+      event: event,
+      timerId: timerId,
+      timestamp: Date.now(),
+      url: window.location.href,
+    };
+
+    console.log('Analytics: Sending event (attempt ' + (retryCount + 1) + ')', {
+      event,
+      timerId,
+      url: window.location.href,
+      payload
+    });
+
+    // Send to backend using fetch with keepalive for reliability
+    const analyticsUrl = '/apps/timer/analytics';
+    const jsonPayload = JSON.stringify(payload);
+
+    console.log('Analytics: Request details', {
+      url: analyticsUrl,
+      method: 'POST',
+      payload: jsonPayload,
+      fullUrl: window.location.origin + analyticsUrl,
+      retryCount: retryCount
+    });
+
+    // Use fetch with keepalive for reliable delivery (works even on page unload)
+    fetch(analyticsUrl, {
+      method: 'POST',
+      body: jsonPayload,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest', // Help identify AJAX requests
+      },
+      keepalive: true, // Keep request alive even if page unloads
+      mode: 'cors', // Explicitly set CORS mode
+      credentials: 'omit', // Don't send credentials for app proxy
+    }).then(response => {
+      console.log('Analytics: Response received', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        event,
+        timerId
+      });
+
+      if (response.ok) {
+        // Try to parse response to get updated counts
+        return response.json().then(data => {
+          console.log('Analytics: Successfully tracked', {
+            event,
+            timerId,
+            responseData: data,
+            impressions: data.impressions,
+            clicks: data.clicks
+          });
+        }).catch(() => {
+          // Response wasn't JSON, but request succeeded
+          console.log('Analytics: Successfully tracked (no JSON response)', { event, timerId });
+        });
+      } else {
+        // Non-OK status, try to get error message
+        return response.text().then(text => {
+          console.error('Analytics: Tracking returned non-OK status', {
+            status: response.status,
+            statusText: response.statusText,
+            event,
+            timerId,
+            errorBody: text
+          });
+
+          // Retry logic for server errors (5xx) or specific client errors
+          if ((response.status >= 500 || response.status === 404) && retryCount < 3) {
+            console.log('Analytics: Queuing for retry', { event, timerId, retryCount });
+            // Wait before retrying (exponential backoff)
+            setTimeout(() => {
+              sendAnalyticsEvent(event, timerId, retryCount + 1);
+            }, Math.pow(2, retryCount) * 1000); // 1s, 2s, 4s
+          } else {
+            console.error('Analytics: Max retries reached or non-retryable error', {
+              status: response.status,
+              retryCount,
+              event,
+              timerId
+            });
+          }
+        }).catch(() => {
+          console.error('Analytics: Could not read error response', { event, timerId });
+        });
+      }
+    }).catch(err => {
+      // Network error or fetch failed
+      console.error('Analytics: Tracking request failed', {
+        error: err.message,
+        event,
+        timerId,
+        url: analyticsUrl,
+        retryCount
+      });
+
+      // Retry on network errors
+      if (retryCount < 3) {
+        console.log('Analytics: Network error, queuing for retry', { event, timerId, retryCount });
+        setTimeout(() => {
+          sendAnalyticsEvent(event, timerId, retryCount + 1);
+        }, Math.pow(2, retryCount) * 1000); // 1s, 2s, 4s
+      } else {
+        console.error('Analytics: Max retries reached after network error', { event, timerId });
+      }
+    });
+  }
+
+  function trackImpression(timerId) {
+    if (!timerId) {
+      console.warn('Analytics: No timerId provided for impression tracking');
+      return;
+    }
+    debugLog('Tracking impression', { timerId, url: window.location.href });
+    sendAnalyticsEvent('impression', timerId);
+  }
+
+  function trackClick(timerId) {
+    if (!timerId) {
+      console.warn('Analytics: No timerId provided for click tracking');
+      return;
+    }
+    debugLog('Tracking click', { timerId, url: window.location.href });
+    // Track clicks immediately - no deduplication needed
+    sendAnalyticsEvent('click', timerId);
   }
 
   // ============================================================================
@@ -918,9 +1085,20 @@
   }
 
   function handleCtaClick(event) {
-    // Optional: track CTA clicks
+    // Track CTA clicks
     const timerId = event.currentTarget.dataset.timerCta;
-    console.log('Timer CTA clicked:', timerId);
+    console.log('Countdown Timer: CTA clicked', { 
+      timerId, 
+      element: event.currentTarget,
+      href: event.currentTarget.href 
+    });
+    
+    if (timerId) {
+      console.log('Countdown Timer: Tracking click for timer', timerId);
+      trackClick(timerId);
+    } else {
+      console.error('Countdown Timer: CTA button missing timer ID', event.currentTarget);
+    }
   }
 
   // ============================================================================
@@ -1012,9 +1190,13 @@
       return;
     }
 
+    // Ensure wrapper is visible initially (will be hidden if no active timers)
+    wrapper.style.display = 'block';
+
     const container = wrapper.querySelector('[data-timer-container]');
     if (!container) {
-      console.log('Countdown Timer: No timer container found');
+      console.error('Countdown Timer: No timer container found');
+      wrapper.style.display = 'none';
       return;
     }
 
@@ -1022,6 +1204,7 @@
     const timerEls = container.querySelectorAll('[data-timer-id]');
     if (timerEls.length === 0) {
       console.log('Countdown Timer: No timer elements found in DOM');
+      wrapper.style.display = 'none';
       return;
     }
 
@@ -1036,6 +1219,20 @@
     for (const timerEl of timerEls) {
       const timer = extractTimerData(timerEl);
 
+      // Debug: Log timer data
+      console.log('Countdown Timer: Processing timer', { 
+        id: timer.id, 
+        type: timer.type,
+        hasId: !!timer.id,
+        element: timerEl 
+      });
+
+      // Skip if no timer ID
+      if (!timer.id) {
+        console.error('Countdown Timer: Timer element missing ID', timerEl);
+        continue;
+      }
+
       // Skip closed timers
       if (closedTimers.includes(timer.id)) {
         timerEl.style.display = 'none';
@@ -1048,6 +1245,11 @@
         continue;
       }
 
+      // Track impression IMMEDIATELY when timer element is found and should be shown
+      // This ensures impressions are counted as soon as possible on page load/reload
+      console.log('Countdown Timer: Tracking impression for timer', timer.id);
+      trackImpression(timer.id);
+
       // Register with engine
       await globalEngine.registerTimer(timer);
 
@@ -1055,7 +1257,6 @@
       if (globalEngine.isTimerActive(timer.id)) {
         timerEl.style.display = '';
         visibleCount++;
-        trackImpression(timer.id);
       } else {
         // Check for display message (e.g., shipping "next day" message)
         const message = globalEngine.getDisplayMessage(timer.id);
@@ -1088,16 +1289,39 @@
       console.log('Countdown Timer: Initialized', visibleCount, 'timer(s)');
     } else {
       wrapper.style.display = 'none';
-      console.log('Countdown Timer: No active timers to display');
+      console.log('Countdown Timer: No active timers to display', {
+        totalTimers: timerEls.length,
+        closedTimers: closedTimers.length,
+        timerIds: Array.from(timerEls).map(el => el.dataset.timerId)
+      });
     }
   }
 
   // Initialize when DOM is ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initTimers);
-  } else {
+  function startInit() {
+    console.log('Countdown Timer: Starting initialization', {
+      readyState: document.readyState,
+      wrapperExists: !!document.querySelector('.countdown-timer-bar-wrapper')
+    });
     initTimers();
   }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startInit);
+  } else {
+    // DOM already loaded, but wait a bit to ensure all elements are rendered
+    setTimeout(startInit, 100);
+  }
+
+  // Also try on window load as fallback
+  window.addEventListener('load', () => {
+    console.log('Countdown Timer: Window loaded, checking for timers');
+    const wrapper = document.querySelector('.countdown-timer-bar-wrapper');
+    if (wrapper && wrapper.querySelectorAll('[data-timer-id]').length > 0) {
+      console.log('Countdown Timer: Found timers on window load, re-initializing');
+      initTimers();
+    }
+  });
 
   // Export for testing
   if (typeof module !== 'undefined' && module.exports) {
