@@ -2,7 +2,7 @@
   "name": "countdown-timer-bar",
   "private": true,
   "scripts": {
-    "build": "prisma generate && prisma migrate deploy && remix vite:build",
+    "build": "prisma generate && remix vite:build",
     "dev": "shopify app dev",
     "config:link": "shopify app config link",
     "config:push": "shopify app config push",
@@ -12,6 +12,8 @@
     "shopify": "shopify",
     "prisma": "prisma",
     "setup": "prisma generate && prisma migrate deploy",
+    "start": "remix-serve ./build/server/index.js",
+    "docker-start": "npm run setup && npm run start",
     "postinstall": "prisma generate",
     "typecheck": "tsc"
   },
@@ -23,6 +25,7 @@
     "@prisma/client": "^5.22.0",
     "@remix-run/node": "^2.15.0",
     "@remix-run/react": "^2.15.0",
+    "@remix-run/serve": "^2.15.0",
     "@shopify/app-bridge-react": "^4.1.4",
     "@shopify/polaris": "^13.9.0",
     "@shopify/shopify-app-remix": "^3.4.0",
