@@ -13,11 +13,12 @@ import {
 } from "@shopify/polaris";
 import { authenticate } from "~/shopify.server";
 import { countActiveTimers } from "~/utils/timer.server";
-import {
-  getShopPlan,
-  activeTimerLimitFor,
-  PLAN_PAID,
-} from "~/lib/billing.server";
+import { getShopPlan, activeTimerLimitFor, PLAN_PAID } from "~/lib/billing.server";
+
+// Remix strips server-only code from a route's `loader`/`action`/`headers`
+// exports, but the default component export still gets bundled for the
+// client — so it can't import anything from a `.server.ts` module. `isPaid`
+// is therefore computed here, server-side, and passed through loader data.
 
 // Matches the `shopify.app.maveric-countdown-timer.toml` filename
 // (`shopify.app.<handle>.toml`) — this is how Shopify builds the hosted
@@ -36,8 +37,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const planSelectionUrl = `https://admin.shopify.com/store/${storeHandle}/charges/${APP_HANDLE}/pricing_plans`;
 
   return json({
-    plan,
     planName,
+    isPaid: plan === PLAN_PAID,
     limit: Number.isFinite(limit) ? limit : null,
     activeTimers,
     planSelectionUrl,
@@ -45,10 +46,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export default function PlanPage() {
-  const { plan, planName, limit, activeTimers, planSelectionUrl } =
+  const { planName, isPaid, limit, activeTimers, planSelectionUrl } =
     useLoaderData<typeof loader>();
-
-  const isPaid = plan === PLAN_PAID;
 
   return (
     <Page title="Plan">
