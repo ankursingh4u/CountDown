@@ -1,5 +1,5 @@
 import { json, type LoaderFunctionArgs, type ActionFunctionArgs } from "@remix-run/node";
-import { useLoaderData, useSearchParams, useSubmit, useNavigation } from "@remix-run/react";
+import { useActionData, useLoaderData, useSearchParams, useSubmit, useNavigation } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -15,6 +15,7 @@ import {
   type IndexFiltersProps,
   type TabProps,
   Button,
+  Banner,
   BlockStack,
   Box,
 } from "@shopify/polaris";
@@ -24,8 +25,10 @@ import {
   getTimers,
   deleteTimers,
   updateTimersStatus,
+  wouldExceedActiveLimit,
 } from "~/utils/timer.server";
 import { syncTimersToMetafield } from "~/utils/sync.server";
+import { getShopPlan, activeTimerLimitFor } from "~/lib/billing.server";
 import { formatTimerDate } from "~/utils/format";
 
 // Serialized timer type (dates are strings after JSON serialization)
@@ -96,11 +99,26 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         await syncTimersToMetafield(admin, shop);
         return json({ success: true, message: `${ids.length} timer(s) deleted` });
 
-      case "activate":
+      case "activate": {
+        const { plan } = await getShopPlan(admin);
+        const limit = activeTimerLimitFor(plan);
+
+        if (await wouldExceedActiveLimit(shop, ids, limit)) {
+          return json(
+            {
+              success: false,
+              message: `Your plan is limited to ${limit} active timer${limit === 1 ? "" : "s"}. Upgrade to activate more.`,
+              upgradeRequired: true,
+            },
+            { status: 403 }
+          );
+        }
+
         await updateTimersStatus(ids, shop, "ACTIVE");
         // Sync timers to metafield for storefront access
         await syncTimersToMetafield(admin, shop);
         return json({ success: true, message: `${ids.length} timer(s) activated` });
+      }
 
       case "pause":
         await updateTimersStatus(ids, shop, "INACTIVE");
@@ -145,8 +163,15 @@ function getTypeBadge(type: string) {
   }
 }
 
+interface ActivateActionData {
+  success: boolean;
+  message?: string;
+  upgradeRequired?: boolean;
+}
+
 export default function TimersIndex() {
   const { timers } = useLoaderData<typeof loader>();
+  const actionData = useActionData<ActivateActionData>();
   const [searchParams, setSearchParams] = useSearchParams();
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -410,6 +435,20 @@ export default function TimersIndex() {
       }}
     >
       <Layout>
+        {actionData?.message && !actionData.success && (
+          <Layout.Section>
+            <Banner
+              tone="critical"
+              action={
+                actionData.upgradeRequired
+                  ? { content: "View plans", url: "/app/plan" }
+                  : undefined
+              }
+            >
+              {actionData.message}
+            </Banner>
+          </Layout.Section>
+        )}
         <Layout.Section>
           <Card padding="0">
             <IndexFilters

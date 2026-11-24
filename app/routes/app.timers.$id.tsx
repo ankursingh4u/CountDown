@@ -30,8 +30,10 @@ import {
   updateTimer,
   deleteTimer,
   validateTimerData,
+  wouldExceedActiveLimit,
 } from "~/utils/timer.server";
 import { syncTimersToMetafield } from "~/utils/sync.server";
+import { getShopPlan, activeTimerLimitFor } from "~/lib/billing.server";
 import { formatDateForInput } from "~/utils/format";
 import { TimerForm, type TimerFormData } from "~/components/TimerForm";
 import { TimerPreview, type TimerPreviewData } from "~/components/TimerPreview";
@@ -40,6 +42,7 @@ interface ActionData {
   success: boolean;
   errors?: Record<string, string[]>;
   message?: string;
+  upgradeRequired?: boolean;
 }
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
@@ -136,6 +139,23 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         },
         { status: 400 }
       );
+    }
+
+    if (validation.data.status === "ACTIVE") {
+      const { plan } = await getShopPlan(admin);
+      const limit = activeTimerLimitFor(plan);
+
+      if (await wouldExceedActiveLimit(shop, [id], limit)) {
+        return json<ActionData>(
+          {
+            success: false,
+            errors: {},
+            message: `Your plan is limited to ${limit} active timer${limit === 1 ? "" : "s"}. Upgrade to activate more.`,
+            upgradeRequired: true,
+          },
+          { status: 403 }
+        );
+      }
     }
 
     await updateTimer(id, shop, validation.data);
@@ -265,7 +285,14 @@ export default function EditTimer() {
       <Layout>
         {actionData?.message && (
           <Layout.Section>
-            <Banner tone={actionData.success ? "success" : "critical"}>
+            <Banner
+              tone={actionData.success ? "success" : "critical"}
+              action={
+                actionData.upgradeRequired
+                  ? { content: "View plans", url: "/app/plan" }
+                  : undefined
+              }
+            >
               {actionData.message}
             </Banner>
           </Layout.Section>

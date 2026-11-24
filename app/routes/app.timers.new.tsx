@@ -9,8 +9,9 @@ import {
 } from "@shopify/polaris";
 import { useState, useCallback } from "react";
 import { authenticate } from "~/shopify.server";
-import { createTimer, validateTimerData } from "~/utils/timer.server";
+import { countActiveTimers, createTimer, validateTimerData } from "~/utils/timer.server";
 import { syncTimersToMetafield } from "~/utils/sync.server";
+import { getShopPlan, activeTimerLimitFor } from "~/lib/billing.server";
 import { TimerForm, getDefaultTimerFormData, type TimerFormData } from "~/components/TimerForm";
 import { TimerPreview, type TimerPreviewData } from "~/components/TimerPreview";
 
@@ -18,6 +19,7 @@ interface ActionData {
   success: boolean;
   errors?: Record<string, string[]>;
   message?: string;
+  upgradeRequired?: boolean;
 }
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -72,6 +74,24 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         },
         { status: 400 }
       );
+    }
+
+    if (validation.data.status === "ACTIVE") {
+      const { plan } = await getShopPlan(admin);
+      const limit = activeTimerLimitFor(plan);
+      const existingActive = await countActiveTimers(shop);
+
+      if (existingActive + 1 > limit) {
+        return json<ActionData>(
+          {
+            success: false,
+            errors: {},
+            message: `Your plan is limited to ${limit} active timer${limit === 1 ? "" : "s"}. Upgrade to activate more.`,
+            upgradeRequired: true,
+          },
+          { status: 403 }
+        );
+      }
     }
 
     await createTimer(shop, validation.data);
@@ -146,7 +166,16 @@ export default function NewTimer() {
       <Layout>
         {actionData?.message && !actionData?.success && (
           <Layout.Section>
-            <Banner tone="critical">{actionData.message}</Banner>
+            <Banner
+              tone="critical"
+              action={
+                actionData.upgradeRequired
+                  ? { content: "View plans", url: "/app/plan" }
+                  : undefined
+              }
+            >
+              {actionData.message}
+            </Banner>
           </Layout.Section>
         )}
 

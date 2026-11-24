@@ -211,6 +211,31 @@ export async function updateTimersStatus(ids: string[], shop: string, status: st
   });
 }
 
+export async function countActiveTimers(shop: string) {
+  return prisma.timer.count({ where: { shop, status: "ACTIVE" } });
+}
+
+// Checks whether setting `activatingIds` to ACTIVE would push the shop's
+// active-timer count past `limit`, counting each id only once even if some
+// are already active.
+export async function wouldExceedActiveLimit(
+  shop: string,
+  activatingIds: string[],
+  limit: number
+) {
+  if (!Number.isFinite(limit)) return false;
+
+  const otherActive = await prisma.timer.count({
+    where: {
+      shop,
+      status: "ACTIVE",
+      id: { notIn: activatingIds },
+    },
+  });
+
+  return otherActive + activatingIds.length > limit;
+}
+
 // Validation helper
 export function validateTimerData(data: unknown) {
   return TimerCreateSchema.safeParse(data);
